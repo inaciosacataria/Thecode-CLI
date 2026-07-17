@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from nexus.sessions.models import FileChange, Session, StoredMessage
@@ -30,11 +31,27 @@ PRAGMA user_version = 1;
 class SessionDatabase:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or Path.home() / ".nexus" / "sessions.db"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(self.path)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys = ON")
-        self.connection.executescript(SCHEMA)
+        self.connection = self._connect(self.path)
+
+    def _connect(self, path: Path) -> sqlite3.Connection:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(path)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.executescript(SCHEMA)
+            return connection
+        except (OSError, sqlite3.OperationalError):
+            if path != self.path:
+                raise
+            fallback_path = Path(tempfile.gettempdir()) / "thecode" / "sessions.db"
+            self.path = fallback_path
+            fallback_path.parent.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(fallback_path)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.executescript(SCHEMA)
+            return connection
 
     def save_session(self, session: Session) -> None:
         values = session.model_dump(mode="json")

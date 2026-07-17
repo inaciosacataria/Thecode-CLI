@@ -302,9 +302,11 @@ def doctor() -> None:
         checks.append((True, "Session database writable"))
     except OSError as error:
         checks.append((False, f"Session database: {error}"))
+    except Exception as error:
+        checks.append((False, f"Session database: {error}"))
     console.print("[brand]TheCode Doctor[/brand]\n")
     for passed, message in checks:
-        marker = "[success]✓[/success]" if passed else "[warning]![/warning]"
+        marker = "[success]+[/success]" if passed else "[warning]![/warning]"
         console.print(f"{marker} {message}")
 
 
