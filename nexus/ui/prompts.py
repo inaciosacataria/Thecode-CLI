@@ -1,4 +1,6 @@
 import os
+from collections.abc import Callable
+from typing import cast
 
 from rich.console import Group
 from rich.live import Live
@@ -40,11 +42,12 @@ def _interactive_permission_choice() -> PermissionResponse | None:
 
     selected = 2
     shortcuts = {option[0]: index for index, option in enumerate(_PERMISSION_OPTIONS)}
+    getwch = cast(Callable[[], str], getattr(msvcrt, "getwch"))
     with Live(_permission_menu(selected), console=console, auto_refresh=False) as live:
         while True:
-            key = msvcrt.getwch()
+            key = getwch()
             if key in {"\x00", "\xe0"}:
-                arrow = msvcrt.getwch()
+                arrow = getwch()
                 if arrow == "H":
                     selected = (selected - 1) % len(_PERMISSION_OPTIONS)
                 elif arrow == "P":
