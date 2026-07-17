@@ -1,10 +1,10 @@
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 import pytest
 
-from nexus.config.models import Settings
 import nexus.sessions.database as session_database
+from nexus.config.models import Settings
 from nexus.sessions.database import SessionDatabase
 from nexus.sessions.manager import SessionManager
 from nexus.sessions.models import StoredMessage
