@@ -1,5 +1,6 @@
 import os
-import sys
+from collections.abc import Callable
+from typing import cast
 
 from rich.console import Group
 from rich.live import Live
@@ -37,13 +38,11 @@ def _interactive_permission_choice() -> PermissionResponse | None:
     if os.name != "nt" or not console.is_terminal:
         return None
 
-    if sys.platform != "win32":
-        return None
-
-    from msvcrt import getwch
+    import msvcrt
 
     selected = 2
     shortcuts = {option[0]: index for index, option in enumerate(_PERMISSION_OPTIONS)}
+    getwch = cast(Callable[[], str], getattr(msvcrt, "getwch"))  # noqa: B009
     with Live(_permission_menu(selected), console=console, auto_refresh=False) as live:
         while True:
             key = getwch()
