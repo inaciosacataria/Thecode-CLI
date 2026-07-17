@@ -1,0 +1,40 @@
+Screen { background: $background; color: $foreground; }
+#topbar { height: 3; background: $panel; border-bottom: solid $primary; padding: 0 2; }
+#brand { width: 1fr; content-align: left middle; color: $foreground; text-style: bold; }
+#header-context, #model { display: none; }
+#workspace { height: 1fr; }
+#sidebar { width: 32; background: $panel; border-right: round $primary; padding: 1; }
+#sidebar-info { height: auto; max-height: 16; padding: 0 1; overflow-y: auto; scrollbar-color: $primary 40%; }
+#tasks { height: auto; max-height: 6; padding: 1; margin-top: 1; background: $background; border: round $primary; }
+#project-tree { height: 1fr; min-height: 8; margin-top: 1; background: $panel; scrollbar-color: $primary 40%; }
+#main { width: 1fr; padding: 0 1; }
+#preview { width: 46; background: $panel; border-left: round $primary; }
+#code-preview, #diff-preview, #files-preview, #architecture-preview, #terminal-log, #tool-inspector { height: 1fr; padding: 1; scrollbar-color: $primary 40%; }
+#architecture-actions { height: 3; align-horizontal: right; padding-right: 1; }
+#architecture-actions Button { margin-left: 1; }
+.section-title { color: $primary; text-style: bold; margin-bottom: 1; }
+#history { height: 1fr; background: $background; padding: 1; scrollbar-color: $primary 40%; }
+#response { height: auto; max-height: 45%; background: $panel; border: round $primary; padding: 1 2; margin: 0 0 1 0; overflow-y: auto; scrollbar-color: $primary 40%; }
+#activity-log { height: auto; max-height: 6; background: $background; color: $text-muted; padding: 0 1; scrollbar-color: $primary 40%; }
+#activity { height: 1; color: $text-muted; margin: 0 1; }
+#progress { height: 1; margin: 0 1; color: $primary; }
+#command-suggestions { height: auto; max-height: 10; margin: 0 1; background: $panel; border: round $primary; }
+#prompt { dock: bottom; height: 6; max-height: 35%; background: $panel; border: round $primary; padding: 0 1; }
+#prompt:focus { border: round $accent; }
+#bottom { height: 1; background: $panel; color: $text-muted; padding: 0 1; }
+#statusbar { height: 1; background: $primary 18%; color: $foreground; padding: 0 1; text-align: right; }
+.key { color: $primary; text-style: bold; }
+PermissionScreen { align: center middle; background: $background 70%; }
+CommandsScreen, SettingsScreen, QuickOpenScreen { align: center middle; background: $background 70%; }
+#permission-dialog { width: 100; max-height: 90%; background: $panel; border: round $primary; padding: 1 2; }
+#permission-description { height: auto; max-height: 5; }
+#diff-review { height: 1fr; min-height: 8; background: $background; border: round $primary; margin-top: 1; }
+#commands-dialog, #settings-dialog { width: 86; max-height: 90%; background: $panel; border: round $primary; padding: 1 2; }
+#quick-open-dialog { width: 90; height: 70%; background: $panel; border: round $primary; padding: 1 2; }
+#quick-results { height: 1fr; margin-top: 1; }
+#command-list { height: auto; max-height: 28; }
+.field-label { color: $text-muted; margin-top: 1; }
+#settings-actions { height: 3; align-horizontal: right; margin-top: 1; }
+#settings-actions Button { margin-left: 1; }
+#permission-actions { height: 3; align-horizontal: right; margin-top: 1; }
+#permission-actions Button { margin-left: 1; }
