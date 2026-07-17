@@ -224,10 +224,10 @@ If the `thecode` command is not found, restart the terminal after installing wit
 python -m pipx ensurepath
 ```
 
-If an older editable installation takes precedence, uninstall previous package names and reinstall:
+If an older editable installation takes precedence, uninstall the previous package and reinstall:
 
 ```bash
-python -m pip uninstall thecode-agent tablutech-agent nexus-code -y
+python -m pip uninstall thecode-agent -y
 python -m pip install --upgrade thecode-agent
 ```
 

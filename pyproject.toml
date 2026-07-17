@@ -31,8 +31,6 @@ dev = [
 
 [project.scripts]
 thecode = "nexus.cli:main"
-tablutech = "nexus.cli:main"
-nexus = "nexus.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nexus"]
