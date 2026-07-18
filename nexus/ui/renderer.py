@@ -12,6 +12,9 @@ from nexus.security.secrets import looks_like_secret
 from nexus.sessions.models import Session
 from nexus.ui.console import console
 
+AUTHOR_NAME = "Inacio Sacataria"
+DONATE_URL_ENV = "THECODE_DONATE_URL"
+
 LOGO = r"""
  _____  _    ____  _     _   _ _____ _____ ____ _   _
 |_   _|/ \  | __ )| |   | | | |_   _| ____/ ___| | | |
@@ -42,7 +45,7 @@ def _safe_symbol(symbol: str, fallback: str) -> str:
 
 def _response_panel(content: str) -> Panel:
     return Panel(
-        Markdown(content or "Thinking…"),
+        Markdown(content or "Analyzing request…"),
         title="[brand] TheCode [/brand]",
         title_align="left",
         border_style="bright_black",
@@ -71,7 +74,7 @@ def stream_end() -> None:
     global _stream_live
     if _stream_live:
         _stream_live.update(_response_panel(_stream_content), refresh=True)
-        # Tool-only model turns should not leave an empty "Thinking" panel behind.
+        # Tool-only model turns should not leave an empty transient panel behind.
         _stream_live.transient = not bool(_stream_content)
         _stream_live.stop()
         _stream_live = None
@@ -83,7 +86,7 @@ def banner(root: Path, branch: str, provider: str, model: str, mode: str) -> Non
     if console.width >= 67:
         console.print(Text(LOGO, style="brand"), overflow="crop", soft_wrap=True)
     else:
-        compact_logo = Text("THECODE", style="brand")
+        compact_logo = Text("TheCode", style="brand")
         console.print(compact_logo)
     console.print()
     details = Text()
@@ -160,6 +163,7 @@ def render_help() -> None:
         ("/compact", "Rebuild context"), ("/undo", "Undo guidance"),
         ("/config", "Effective config"), ("/model", "Active model"),
         ("/provider", "Change provider"), ("/permissions", "Permission mode"),
+        ("/about", "Show author and project info"), ("/donate", "Show support link"),
         ("/clear", "Clear screen"), ("/exit", "Leave TheCode"),
     ]
     table = Table.grid(expand=True, padding=(0, 2))
@@ -178,6 +182,46 @@ def render_help() -> None:
             title="[brand] Commands [/brand]",
             title_align="left",
             border_style="bright_black",
+            width=content_width(),
+        )
+    )
+
+
+def render_about(donate_url: str | None = None) -> None:
+    body = (
+        f"[b $primary]THECODE[/]\n"
+        f"[muted]AI Software Engineer for the terminal.[/]\n\n"
+        f"[b]Author[/b]\n{AUTHOR_NAME}\n\n"
+        f"[b]Support[/b]\n"
+        + (f"{donate_url}" if donate_url else "Set [command]THECODE_DONATE_URL[/command] to show your support link.")
+    )
+    console.print(
+        Panel(
+            body,
+            title="[brand] About [/brand]",
+            title_align="left",
+            border_style="bright_black",
+            padding=(0, 1),
+            width=content_width(),
+        )
+    )
+
+
+def render_donate(donate_url: str | None = None) -> None:
+    if donate_url:
+        message = f"Support the project at:\n{donate_url}"
+    else:
+        message = (
+            "No donate URL is configured.\n"
+            f"Set [command]{DONATE_URL_ENV}[/command] to your donation page."
+        )
+    console.print(
+        Panel(
+            message,
+            title="[brand] Donate [/brand]",
+            title_align="left",
+            border_style="bright_black",
+            padding=(0, 1),
             width=content_width(),
         )
     )

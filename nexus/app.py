@@ -63,4 +63,5 @@ def build_agent(
         session.id,
         history,
         SYSTEM_PROMPT + "\n\n" + load_project_instructions(root, settings.context.max_characters // 2),
+        settings.context.max_characters,
     )

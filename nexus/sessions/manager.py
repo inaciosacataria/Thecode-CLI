@@ -10,8 +10,9 @@ from nexus.sessions.database import SessionDatabase
 from nexus.sessions.models import FileChange, Session
 
 
-def content_hash(content: str) -> str:
-    return hashlib.sha256(content.encode()).hexdigest()
+def content_hash(content: str | bytes) -> str:
+    raw = content.encode() if isinstance(content, str) else content
+    return hashlib.sha256(raw).hexdigest()
 
 
 class SessionManager:
@@ -24,21 +25,52 @@ class SessionManager:
         self.database.save_session(session)
         return session
 
-    def record_change(self, session_id: str, path: Path, previous: str | None, current: str) -> int:
-        return self.database.add_change(FileChange(session_id=session_id, path=str(path), previous_content=previous, previous_hash=content_hash(previous) if previous is not None else None, new_hash=content_hash(current), created=previous is None))
+    def record_change(
+        self,
+        session_id: str,
+        path: Path,
+        previous: str | None,
+        current: str | bytes,
+        previous_bytes: bytes | None = None,
+        operation: str = "edit",
+        source_path: str | None = None,
+        destination_previous_bytes: bytes | None = None,
+    ) -> int:
+        previous_hash_value = previous_bytes if previous_bytes is not None else previous
+        return self.database.add_change(
+            FileChange(
+                session_id=session_id, path=str(path), previous_content=previous,
+                previous_bytes=previous_bytes,
+                previous_hash=content_hash(previous_hash_value) if previous_hash_value is not None else None,
+                new_hash=content_hash(current),
+                created=previous is None and previous_bytes is None,
+                operation=operation, source_path=source_path,
+                destination_previous_bytes=destination_previous_bytes,
+            )
+        )
 
     def undo(self, session_id: str) -> str:
         change = self.database.last_change(session_id)
         if not change or change.id is None:
             raise ValueError("No agent change is available to undo")
         path = resolve_project_path(self.settings.project_root, change.path)
-        current = path.read_text(encoding="utf-8") if path.exists() else ""
+        current = path.read_bytes() if path.exists() else b""
         if content_hash(current) != change.new_hash:
             raise ValueError("File changed after the agent operation; refusing to overwrite it")
-        if change.created:
+        if change.operation == "move" and change.source_path:
+            source = resolve_project_path(self.settings.project_root, change.source_path)
+            if source.exists():
+                raise ValueError("Move source exists again; refusing to overwrite it")
+            source.parent.mkdir(parents=True, exist_ok=True)
+            path.replace(source)
+            if change.destination_previous_bytes is not None:
+                path.write_bytes(change.destination_previous_bytes)
+        elif change.created:
             path.unlink()
         else:
-            path.write_text(change.previous_content or "", encoding="utf-8")
+            if change.previous_bytes is not None:
+                path.write_bytes(change.previous_bytes)
+            else:
+                path.write_text(change.previous_content or "", encoding="utf-8")
         self.database.mark_undone(change.id)
         return f"Undid change to {path.relative_to(self.settings.project_root)}"
-

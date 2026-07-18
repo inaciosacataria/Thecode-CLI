@@ -81,7 +81,9 @@ class CopyFileTool(Tool[TransferPathInput]):
         return ToolResult(
             success=True,
             output=f"Copied {arguments.source} to {arguments.destination}",
-            metadata={"path": str(destination), "previous_bytes": previous},
+            metadata={
+                "path": str(destination), "previous_bytes": previous, "operation": "copy"
+            },
         )
 
 
@@ -100,6 +102,7 @@ class MoveFileTool(Tool[TransferPathInput]):
             return ToolResult(success=False, error=f"Destination is a directory: {arguments.destination}")
         if destination.exists() and not arguments.overwrite:
             return ToolResult(success=False, error=f"Destination exists: {arguments.destination}")
+        previous = destination.read_bytes() if destination.is_file() else None
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             destination.unlink()
@@ -107,7 +110,10 @@ class MoveFileTool(Tool[TransferPathInput]):
         return ToolResult(
             success=True,
             output=f"Moved {arguments.source} to {arguments.destination}",
-            metadata={"source": str(source), "path": str(destination)},
+            metadata={
+                "source": str(source), "path": str(destination),
+                "previous_bytes": previous, "operation": "move",
+            },
         )
 
 

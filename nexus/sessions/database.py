@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 from nexus.sessions.models import FileChange, Session, StoredMessage
+from nexus.sessions.persistence import sanitize_message, sanitize_metadata
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -24,8 +25,9 @@ CREATE TABLE IF NOT EXISTS file_changes (
  created INTEGER NOT NULL, undone INTEGER NOT NULL DEFAULT 0,
  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
-PRAGMA user_version = 1;
 """
+
+SCHEMA_VERSION = 4
 
 
 class SessionDatabase:
@@ -39,7 +41,7 @@ class SessionDatabase:
             connection = sqlite3.connect(path)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
-            connection.executescript(SCHEMA)
+            self._migrate(connection)
             return connection
         except (OSError, sqlite3.OperationalError):
             if path != self.path:
@@ -50,8 +52,40 @@ class SessionDatabase:
             connection = sqlite3.connect(fallback_path)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
-            connection.executescript(SCHEMA)
+            self._migrate(connection)
             return connection
+
+    def _migrate(self, connection: sqlite3.Connection) -> None:
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        connection.executescript(SCHEMA)
+        if version < 2:
+            connection.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id, id);
+                CREATE INDEX IF NOT EXISTS idx_changes_session_id ON file_changes(session_id, id);
+                DELETE FROM messages
+                WHERE lower(trim(content)) IN
+                  ('thinking...', 'thinking…', 'ready', 'loaded project', 'response completed');
+                """
+            )
+        if version < 3:
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(file_changes)").fetchall()
+            }
+            if "previous_bytes" not in columns:
+                connection.execute("ALTER TABLE file_changes ADD COLUMN previous_bytes BLOB")
+        if version < 4:
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(file_changes)").fetchall()
+            }
+            if "operation" not in columns:
+                connection.execute("ALTER TABLE file_changes ADD COLUMN operation TEXT NOT NULL DEFAULT 'edit'")
+            if "source_path" not in columns:
+                connection.execute("ALTER TABLE file_changes ADD COLUMN source_path TEXT")
+            if "destination_previous_bytes" not in columns:
+                connection.execute("ALTER TABLE file_changes ADD COLUMN destination_previous_bytes BLOB")
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection.commit()
 
     def save_session(self, session: Session) -> None:
         values = session.model_dump(mode="json")
@@ -74,7 +108,24 @@ class SessionDatabase:
         return cursor.rowcount > 0
 
     def add_message(self, message: StoredMessage) -> None:
-        self.connection.execute("INSERT INTO messages(session_id,role,content,metadata) VALUES (?,?,?,?)", (message.session_id, message.role, message.content, json.dumps(message.metadata)))
+        content = sanitize_message(message.role, message.content)
+        if content is None:
+            return
+        metadata = sanitize_metadata(message.metadata)
+        self.connection.execute(
+            "INSERT INTO messages(session_id,role,content,metadata) VALUES (?,?,?,?)",
+            (message.session_id, message.role, content, json.dumps(metadata, ensure_ascii=False)),
+        )
+        self.connection.commit()
+
+    def update_session_summary(self, session_id: str, summary: str) -> None:
+        safe = sanitize_message("assistant", summary)
+        if safe is None:
+            return
+        self.connection.execute(
+            "UPDATE sessions SET summary=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (safe[:4000], session_id),
+        )
         self.connection.commit()
 
     def list_messages(self, session_id: str) -> list[StoredMessage]:
@@ -93,7 +144,14 @@ class SessionDatabase:
         ]
 
     def add_change(self, change: FileChange) -> int:
-        cursor = self.connection.execute("INSERT INTO file_changes(session_id,path,previous_content,previous_hash,new_hash,created,undone) VALUES (?,?,?,?,?,?,?)", (change.session_id, change.path, change.previous_content, change.previous_hash, change.new_hash, change.created, change.undone))
+        cursor = self.connection.execute(
+            "INSERT INTO file_changes(session_id,path,previous_content,previous_bytes,previous_hash,new_hash,created,undone,operation,source_path,destination_previous_bytes) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                change.session_id, change.path, change.previous_content, change.previous_bytes,
+                change.previous_hash, change.new_hash, change.created, change.undone,
+                change.operation, change.source_path, change.destination_previous_bytes,
+            ),
+        )
         self.connection.commit()
         if cursor.lastrowid is None:
             raise RuntimeError("SQLite did not return an identifier for the file change")

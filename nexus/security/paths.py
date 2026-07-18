@@ -16,7 +16,10 @@ SENSITIVE_PATTERNS = (
     "id_rsa",
     "id_ed25519",
     "credentials.json",
+    "service-account.json",
     "secrets.yml",
+    "secrets.yaml",
+    "config.production.json",
 )
 
 
@@ -33,4 +36,3 @@ def resolve_project_path(root: Path, value: str | Path, *, must_exist: bool = Fa
 
 def is_sensitive_path(path: Path) -> bool:
     return any(fnmatch.fnmatch(path.name, pattern) for pattern in SENSITIVE_PATTERNS)
-

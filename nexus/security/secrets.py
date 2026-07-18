@@ -3,6 +3,12 @@ import re
 SECRET_PATTERNS = (
     re.compile(r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*([^\s,;]+)"),
     re.compile(r"\b(sk-[A-Za-z0-9_-]{16,})\b"),
+    re.compile(r"\b(sk-or-v1-[A-Za-z0-9_-]{16,})\b"),
+    re.compile(r"\b(sk-ant-[A-Za-z0-9_-]{16,})\b"),
+    re.compile(r"\b(gh[opusr]_[A-Za-z0-9_]{20,})\b"),
+    re.compile(r"\b(AKIA[0-9A-Z]{16})\b"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{16,}"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
 )
 

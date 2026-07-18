@@ -4,6 +4,8 @@
 
 TheCode is a provider-independent coding agent with a full-screen terminal workbench. It can understand a repository, search and read code, propose plans, edit files with approval, run commands and tests, inspect Git changes, and preserve local sessions.
 
+Created by Inacio Sacataria.
+
 [![PyPI version](https://img.shields.io/pypi/v/thecode-agent.svg)](https://pypi.org/project/thecode-agent/)
 [![Python](https://img.shields.io/pypi/pyversions/thecode-agent.svg)](https://pypi.org/project/thecode-agent/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -17,7 +19,7 @@ TheCode is a provider-independent coding agent with a full-screen terminal workb
 - Preview, Diff, Files, Architecture, Terminal, and Logs panels
 - Tool inspector with arguments, output, status, and duration
 - Permission modes for safe, interactive, or more autonomous work
-- OpenRouter, OpenAI, Anthropic, and local Ollama support
+- OpenRouter free models by default, plus OpenAI, Anthropic, and local Ollama support
 - Git-aware repository analysis and session history
 - Multi-folder `.code-workspace` support
 - `@file` context, project rules, skills, and `AGENTS.md` support
@@ -29,7 +31,7 @@ TheCode is a provider-independent coding agent with a full-screen terminal workb
 - Python 3.12 or newer
 - Git
 - [Ripgrep](https://github.com/BurntSushi/ripgrep) is recommended for fast search
-- An API key for OpenRouter, OpenAI, or Anthropic; Ollama can run locally without one
+- An API key for OpenAI or Anthropic; OpenRouter can start on free models without a key, and Ollama can run locally without one
 
 ## Install
 
@@ -70,7 +72,7 @@ thecode doctor
 thecode
 ```
 
-The setup wizard asks for a provider, model, API key, and permission mode. Credentials are entered with hidden input and stored in the project `.env`; that file should remain ignored by Git.
+The setup wizard asks for a provider, model, optional API key, and permission mode. OpenRouter starts on `openrouter/free` by default, and other providers store credentials in the project `.env`; that file should remain ignored by Git.
 
 Inside the workbench, type a request:
 
@@ -84,7 +86,7 @@ Type `/` to discover interactive commands. Use `@path/to/file.py` to attach a sp
 
 | Provider | Credential | Example model |
 | --- | --- | --- |
-| OpenRouter | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
+| OpenRouter | Optional on free models | `openrouter/free` |
 | OpenAI | `OPENAI_API_KEY` | Provider model identifier |
 | Anthropic | `ANTHROPIC_API_KEY` | Provider model identifier |
 | Ollama | No key required | Any locally installed model |
@@ -128,6 +130,19 @@ Useful interactive commands:
 ```
 
 `/architect` performs a read-only Current/Proposed architecture analysis. TheCode only starts implementation after you select **Apply architecture**.
+
+## Author and support
+
+Author: Inacio Sacataria
+
+If you want to support the project, set a donate URL and use the new CLI command:
+
+```powershell
+$env:THECODE_DONATE_URL="https://your-donate-link.example"
+thecode donate
+```
+
+Inside the workbench, use `/about` to show the author and `/donate` to show the support link.
 
 ## CLI commands
 
@@ -176,7 +191,7 @@ Example:
 ```yaml
 llm:
   provider: openrouter
-  model: anthropic/claude-sonnet-4
+  model: openrouter/free
 agent:
   max_steps: 30
 permissions:

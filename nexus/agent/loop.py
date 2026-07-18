@@ -6,10 +6,12 @@ from collections.abc import Callable
 from difflib import unified_diff
 from typing import Any
 
+from nexus.agent.context import trim_messages
 from nexus.agent.prompts import SYSTEM_PROMPT
 from nexus.agent.state import AgentState, AgentStep, StepStatus
 from nexus.llm.base import LLMProvider, LLMResponse, Message
 from nexus.permissions.manager import PermissionManager
+from nexus.security.commands import classify_command
 from nexus.security.paths import resolve_project_path
 from nexus.sessions.manager import SessionManager
 from nexus.sessions.models import StoredMessage
@@ -33,6 +35,7 @@ class AgentLoop:
         session_id: str | None = None,
         initial_messages: list[Message] | None = None,
         system_prompt: str = SYSTEM_PROMPT,
+        max_context_characters: int = 120_000,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -46,14 +49,22 @@ class AgentLoop:
         self.on_actions_end = on_actions_end
         self.session_manager = session_manager
         self.session_id = session_id
+        self.max_context_characters = max_context_characters
         self.messages = [Message(role="system", content=system_prompt)]
         if initial_messages:
             self.messages.extend(initial_messages)
 
-    def _store_message(self, role: str, content: str) -> None:
+    def _store_message(
+        self, role: str, content: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         if self.session_manager and self.session_id:
             self.session_manager.database.add_message(
-                StoredMessage(session_id=self.session_id, role=role, content=content)
+                StoredMessage(
+                    session_id=self.session_id,
+                    role=role,
+                    content=content,
+                    metadata=metadata or {},
+                )
             )
 
     def _action_description(self, name: str, arguments: dict[str, Any]) -> str:
@@ -108,6 +119,7 @@ class AgentLoop:
     async def run(self, request: str) -> tuple[str, AgentState]:
         state = AgentState(original_request=request)
         failed_calls: dict[str, str] = {}
+        inspected_project = False
         self._store_message("user", request)
         self.messages.append(Message(role="user", content=request))
         messages = self.messages
@@ -119,7 +131,9 @@ class AgentLoop:
                 self.on_stream_start()
             try:
                 async for chunk in self.provider.stream_chat(
-                    messages, self.registry.definitions(), self.model
+                    trim_messages(messages, self.max_context_characters),
+                    self.registry.definitions(),
+                    self.model,
                 ):
                     if chunk.content:
                         content_parts.append(chunk.content)
@@ -139,9 +153,14 @@ class AgentLoop:
                 messages.append(Message(role="assistant", content=response.content))
                 self._store_message("assistant", response.content)
             if not response.tool_calls:
+                if self.on_actions_end:
+                    self.on_actions_end()
+                if self.session_manager and self.session_id and response.content:
+                    self.session_manager.database.update_session_summary(
+                        self.session_id, response.content
+                    )
                 return response.content, state
             for call in response.tool_calls:
-                tool = self.registry.get(call.name)
                 step = AgentStep(number=number, user_request=request, tool_name=call.name, arguments=call.arguments)
                 started = time.perf_counter()
                 signature = json.dumps(
@@ -160,27 +179,64 @@ class AgentLoop:
                     )
                     self._present_local_response(message)
                     self._store_message("assistant", message)
+                    if self.on_actions_end:
+                        self.on_actions_end()
                     return message, state
-                decision = await self.permissions.authorize_async(
-                    self._action_description(call.name, call.arguments), tool.risk_level
-                )
-                if not decision.allowed:
-                    step.status, step.error = StepStatus.DENIED, decision.reason
-                    result_text = f"Permission denied: {decision.reason}"
+                try:
+                    tool = self.registry.get(call.name)
+                except KeyError as error:
+                    step.status, step.error = StepStatus.FAILED, str(error)
+                    result_text = str(error)
                 else:
-                    if self.on_step:
-                        self.on_step(step)
-                    try:
-                        parsed = tool.input_schema.model_validate(call.arguments)
-                        result = await tool.execute(parsed)
-                        result_text = result.output if result.success else (result.error or "Tool failed")
-                        step.status = StepStatus.SUCCEEDED if result.success else StepStatus.FAILED
-                        step.error = result.error
-                        if result.success and call.name in {"write_file", "edit_file", "delete_file"}:
-                            self._record_file_change(result.metadata)
-                    except (ValueError, OSError) as error:
-                        result_text = str(error)
-                        step.status, step.error = StepStatus.FAILED, str(error)
+                    write_tools = {
+                        "write_file", "edit_file", "delete_file", "move_file", "copy_file",
+                        "create_directory", "delete_directory",
+                    }
+                    if call.name in write_tools and not inspected_project:
+                        step.status = StepStatus.FAILED
+                        step.error = "Inspect the relevant project files before modifying them"
+                        result_text = step.error
+                    else:
+                        risk = tool.risk_level
+                        command = call.arguments.get("command")
+                        if call.name in {"execute_command", "start_process"} and isinstance(command, str):
+                            risk = max(risk, classify_command(command))
+                        decision = await self.permissions.authorize_async(
+                            self._action_description(call.name, call.arguments),
+                            risk,
+                            always_confirm=call.name in {"delete_file", "delete_directory"},
+                        )
+                        if not decision.allowed:
+                            step.status, step.error = StepStatus.DENIED, decision.reason
+                            result_text = f"Permission denied: {decision.reason}"
+                        else:
+                            if self.on_step:
+                                self.on_step(step)
+                            try:
+                                parsed = tool.input_schema.model_validate(call.arguments)
+                                result = await tool.execute(parsed)
+                                result_text = result.output if result.success else (result.error or "Tool failed")
+                                step.metadata = result.metadata
+                                step.status = StepStatus.SUCCEEDED if result.success else StepStatus.FAILED
+                                step.error = result.error
+                                if result.success and call.name in {
+                                    "read_file", "list_files", "search_files", "project_map",
+                                    "git_status", "git_diff", "file_info",
+                                }:
+                                    inspected_project = True
+                                    failed_calls = {
+                                        key: value
+                                        for key, value in failed_calls.items()
+                                        if value != "Inspect the relevant project files before modifying them"
+                                    }
+                                if result.success and call.name in {
+                                    "write_file", "edit_file", "delete_file", "copy_file", "move_file"
+                                }:
+                                    failed_calls.clear()
+                                    self._record_file_change(result.metadata)
+                            except (ValueError, OSError) as error:
+                                result_text = str(error)
+                                step.status, step.error = StepStatus.FAILED, str(error)
                 step.duration_ms = (time.perf_counter() - started) * 1000
                 step.result = result_text
                 if step.status in {StepStatus.FAILED, StepStatus.DENIED}:
@@ -189,10 +245,24 @@ class AgentLoop:
                 if self.on_step:
                     self.on_step(step)
                 messages.append(Message(role="tool", content=result_text, name=call.name, tool_call_id=call.id))
-                self._store_message("tool", result_text)
+                self._store_message(
+                    "tool",
+                    result_text,
+                    {
+                        "kind": "tool_call",
+                        "tool": call.name,
+                        "arguments": call.arguments,
+                        "status": step.status.value,
+                        "duration_ms": round(step.duration_ms),
+                        "plan_step": number,
+                    },
+                )
         if self.on_actions_end:
             self.on_actions_end()
-        return f"Stopped after reaching the maximum of {self.max_steps} steps.", state
+        message = f"Stopped after reaching the maximum of {self.max_steps} steps."
+        self._present_local_response(message)
+        self._store_message("assistant", message)
+        return message, state
 
     def _present_local_response(self, message: str) -> None:
         if self.on_stream_start:
@@ -212,5 +282,20 @@ class AgentLoop:
         path = path.resolve()
         previous_value = metadata.get("previous")
         previous = previous_value if isinstance(previous_value, str) else None
-        current = path.read_text(encoding="utf-8") if path.exists() else ""
-        self.session_manager.record_change(self.session_id, path, previous, current)
+        current = path.read_bytes() if path.exists() else b""
+        previous_bytes_value = metadata.get("previous_bytes")
+        previous_bytes = previous_bytes_value if isinstance(previous_bytes_value, bytes) else None
+        source_value = metadata.get("source")
+        source_path = source_value if isinstance(source_value, str) else None
+        operation_value = metadata.get("operation")
+        operation = operation_value if isinstance(operation_value, str) else "edit"
+        self.session_manager.record_change(
+            self.session_id,
+            path,
+            previous,
+            current,
+            previous_bytes,
+            operation,
+            source_path,
+            previous_bytes if operation == "move" else None,
+        )

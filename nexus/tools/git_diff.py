@@ -6,6 +6,7 @@ from nexus.tools.base import Tool, ToolResult
 
 class GitDiffInput(BaseModel):
     staged: bool = False
+    base: str | None = None
 
 
 class GitDiffTool(Tool[GitDiffInput]):
@@ -15,6 +16,7 @@ class GitDiffTool(Tool[GitDiffInput]):
 
     async def execute(self, arguments: GitDiffInput) -> ToolResult:
         args = ["diff"] + (["--cached"] if arguments.staged else [])
+        if arguments.base:
+            args.append(f"{arguments.base}...HEAD")
         code, output, error = await run_git(self.project_root, *args)
         return ToolResult(success=code == 0, output=output, error=error or None)
-

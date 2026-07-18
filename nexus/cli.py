@@ -14,6 +14,7 @@ import yaml
 from nexus.agent.planner import planning_request
 from nexus.app import build_agent
 from nexus.config.loader import load_settings
+from nexus.config.models import is_free_openrouter_model
 from nexus.config.wizard import configure_provider
 from nexus.repository.git import current_branch
 from nexus.repository.scanner import project_summary
@@ -21,8 +22,18 @@ from nexus.security.secrets import looks_like_secret
 from nexus.sessions.database import SessionDatabase
 from nexus.sessions.manager import SessionManager
 from nexus.ui.console import console
+from nexus.ui.encoding import configure_utf8_streams
 from nexus.ui.prompts import confirm_prompt, user_input
-from nexus.ui.renderer import banner, render_chat_hint, render_help, render_notice, sessions_table
+from nexus.ui.renderer import (
+    DONATE_URL_ENV,
+    banner,
+    render_about,
+    render_chat_hint,
+    render_donate,
+    render_help,
+    render_notice,
+    sessions_table,
+)
 from nexus.ui.themes import THEME_NAMES
 from nexus.ui.tui import run_tui
 from nexus.workspace import CodeWorkspace, discover_workspace
@@ -82,6 +93,12 @@ async def _chat(root: Path, session_id: str | None = None) -> None:
             return
         if value == "/help":
             render_help()
+            continue
+        if value == "/about":
+            render_about(os.getenv(DONATE_URL_ENV))
+            continue
+        if value == "/donate":
+            render_donate(os.getenv(DONATE_URL_ENV))
             continue
         if value == "/clear":
             console.clear()
@@ -236,9 +253,16 @@ def plan(prompt: str) -> None:
 
 
 @cli.command()
-def review() -> None:
+def review(
+    base: str | None = typer.Option(None, "--base", help="Compare changes against this Git ref."),
+) -> None:
     """Review current Git changes for defects and risks."""
-    prompt = "Review the current git diff. Identify bugs, security issues, missing tests, breaking changes, dead code, and performance problems. Do not modify files."
+    target = f" using git_diff with base `{base}`" if base else ""
+    prompt = (
+        f"Review the current git diff{target}. Identify bugs, security issues, regressions, "
+        "missing tests, breaking changes, performance problems, dead code, secrets, and "
+        "concurrency errors. Do not modify files."
+    )
     _run(_execute(prompt, Path.cwd().resolve(), True))
 
 
@@ -262,6 +286,18 @@ def models() -> None:
     console.print(f"Provider: {settings.llm.provider}\nModel: {settings.llm.model}")
 
 
+@cli.command()
+def about() -> None:
+    """Show project and author information."""
+    render_about(os.getenv(DONATE_URL_ENV))
+
+
+@cli.command()
+def donate() -> None:
+    """Show the project support link."""
+    render_donate(os.getenv(DONATE_URL_ENV))
+
+
 @cli.command("init")
 def initialize() -> None:
     """Initialize TheCode configuration and project instructions."""
@@ -274,7 +310,19 @@ def initialize() -> None:
         raise typer.Exit(1)
     summary = project_summary(root)
     nexus_dir.mkdir(exist_ok=True)
-    config_path.write_text(yaml.safe_dump({"llm": {"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}, "agent": {"max_steps": 30}, "permissions": {"mode": "ask"}, "context": {"max_characters": 120000}, "project": {"ignore": ["node_modules", "dist", "build", ".git", "vendor"]}}, sort_keys=False), encoding="utf-8")
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "llm": {"provider": "openrouter", "model": "openrouter/free"},
+                "agent": {"max_steps": 30},
+                "permissions": {"mode": "ask"},
+                "context": {"max_characters": 120000},
+                "project": {"ignore": ["node_modules", "dist", "build", ".git", "vendor"]},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     instructions.write_text(f"# TheCode instructions\n\nProject: {root.name}\n\n## Detected project\n\n```yaml\n{yaml.safe_dump(summary, sort_keys=False)}```\n\n## Conventions\n\nDocument architecture, coding conventions, test commands, and restrictions here.\n", encoding="utf-8")
     console.print("[green]Created .nexus/config.yaml and NEXUS.md[/green]")
 
@@ -295,8 +343,31 @@ def doctor() -> None:
             if (root / ".nexus" / "config.yaml").exists()
             else "No project-level configuration found",
         ),
-        (settings.llm.provider == "ollama" or bool(os.getenv({"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY"}.get(settings.llm.provider, ""))), f"{settings.llm.provider} credentials configured"),
     ]
+    if settings.llm.provider == "openrouter":
+        has_key = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+        passed = has_key or is_free_openrouter_model(settings.llm.model)
+        label = (
+            "OpenRouter key configured"
+            if has_key
+            else "OpenRouter free model selected"
+        )
+        checks.append((passed, label))
+    else:
+        checks.append(
+            (
+                settings.llm.provider == "ollama"
+                or bool(
+                    os.getenv(
+                        {
+                            "openai": "OPENAI_API_KEY",
+                            "anthropic": "ANTHROPIC_API_KEY",
+                        }.get(settings.llm.provider, "")
+                    )
+                ),
+                f"{settings.llm.provider} credentials configured",
+            )
+        )
     try:
         SessionDatabase().connection.execute("SELECT 1")
         checks.append((True, "Session database writable"))
@@ -347,4 +418,5 @@ def undo(session_id: str) -> None:
 
 
 def main() -> None:
+    configure_utf8_streams()
     cli()

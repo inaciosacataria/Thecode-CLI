@@ -15,13 +15,16 @@ class OpenAIProvider(LLMProvider):
         self.base_url = base_url.rstrip("/")
         self.client = client or httpx.AsyncClient(timeout=120)
 
+    def _authorization_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
     async def chat(self, messages: list[Message], tools: list[dict[str, Any]], model: str) -> LLMResponse:
         payload: dict[str, Any] = {"model": model, "messages": [m.model_dump(exclude_none=True) for m in messages]}
         if tools:
             payload["tools"] = [{"type": "function", "function": tool} for tool in tools]
         response = await self.client.post(
             f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers=self._authorization_headers(),
             json=payload,
         )
         response.raise_for_status()
@@ -46,7 +49,7 @@ class OpenAIProvider(LLMProvider):
         async with self.client.stream(
             "POST",
             f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers=self._authorization_headers(),
             json=payload,
         ) as response:
             response.raise_for_status()
@@ -94,5 +97,10 @@ class OpenAIProvider(LLMProvider):
 
 
 class OpenRouterProvider(OpenAIProvider):
-    def __init__(self, api_key: str, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(self, api_key: str = "", client: httpx.AsyncClient | None = None) -> None:
         super().__init__(api_key, "https://openrouter.ai/api/v1", client)
+
+    def _authorization_headers(self) -> dict[str, str]:
+        if not self.api_key.strip():
+            return {}
+        return super()._authorization_headers()

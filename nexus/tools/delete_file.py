@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from nexus.permissions.risk import RiskLevel
 from nexus.security.paths import is_sensitive_path, resolve_project_path
 from nexus.tools.base import Tool, ToolResult
+from nexus.tools.text_files import read_text_document
 
 
 class DeleteFileInput(BaseModel):
@@ -28,10 +29,13 @@ class DeleteFileTool(Tool[DeleteFileInput]):
                 success=False,
                 error="Sensitive file deletion requires allow_sensitive=true and user approval",
             )
-        previous = path.read_text(encoding="utf-8")
+        document = read_text_document(path)
         path.unlink()
         return ToolResult(
             success=True,
             output=f"Deleted {path.relative_to(self.project_root)}",
-            metadata={"path": str(path), "previous": previous, "deleted": True},
+            metadata={
+                "path": str(path), "previous": document.text,
+                "previous_bytes": document.raw, "deleted": True,
+            },
         )

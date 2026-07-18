@@ -29,11 +29,16 @@ class PermissionManager:
             raise RuntimeError("Async permission callback requires authorize_async")
         return self._response_decision(response)
 
-    async def authorize_async(self, description: str, risk: RiskLevel) -> PermissionDecision:
+    async def authorize_async(
+        self, description: str, risk: RiskLevel, *, always_confirm: bool = False
+    ) -> PermissionDecision:
         decision = decide(self.mode, risk)
+        if always_confirm and decision.allowed:
+            decision.requires_confirmation = True
+            decision.reason = "This action always requires confirmation"
         if not decision.allowed or not decision.requires_confirmation:
             return decision
-        if self.allow_for_session:
+        if self.allow_for_session and not always_confirm:
             return PermissionDecision(allowed=True, reason="Allowed for this session")
         response = self.confirm(description)
         if inspect.isawaitable(response):

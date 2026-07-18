@@ -1,3 +1,5 @@
+import pytest
+
 from nexus.permissions.manager import PermissionManager
 from nexus.permissions.risk import RiskLevel
 
@@ -31,3 +33,27 @@ def test_critical_action_remains_blocked_after_allow_session() -> None:
     decision = manager.authorize("critical", RiskLevel.CRITICAL)
     assert not decision.allowed
     assert decision.reason == "Critical actions are blocked"
+
+
+def test_permission_modes_enforce_expected_boundaries() -> None:
+    assert PermissionManager("plan").authorize("read", RiskLevel.READ_ONLY).allowed
+    assert not PermissionManager("plan").authorize("write", RiskLevel.LOW).allowed
+    assert PermissionManager("ask").authorize("test", RiskLevel.LOW).allowed
+    assert PermissionManager("agent").authorize("write", RiskLevel.MEDIUM).allowed
+    assert not PermissionManager("agent").authorize("commit", RiskLevel.HIGH).allowed
+    assert PermissionManager("auto").authorize("commit", RiskLevel.HIGH).allowed
+    assert not PermissionManager("auto").authorize("reset", RiskLevel.CRITICAL).allowed
+
+
+@pytest.mark.asyncio
+async def test_always_confirm_cannot_be_bypassed_by_auto_or_session() -> None:
+    prompts: list[str] = []
+
+    def confirm(description: str) -> str:
+        prompts.append(description)
+        return "session"
+
+    manager = PermissionManager("auto", confirm)  # type: ignore[arg-type]
+    assert (await manager.authorize_async("delete one", RiskLevel.HIGH, always_confirm=True)).allowed
+    assert (await manager.authorize_async("delete two", RiskLevel.HIGH, always_confirm=True)).allowed
+    assert prompts == ["delete one", "delete two"]

@@ -7,7 +7,7 @@ import sys
 from nexus.permissions.risk import RiskLevel
 
 CRITICAL_PATTERNS = (
-    r"(^|\s)(rm|rmdir)\s+(-[^ ]*r[^ ]*f|-[^ ]*f[^ ]*r)",
+    r"(^|\s)(rm|rmdir|del)\s+",
     r"git\s+reset\s+--hard",
     r"git\s+push\s+.*--force",
     r"\b(format|mkfs|diskpart)\b",
@@ -28,7 +28,6 @@ def classify_command(command: str) -> RiskLevel:
         return RiskLevel.CRITICAL
     if normalized.startswith(("git status", "git diff", "git log", "rg ", "pytest", "npm test", "pnpm test")):
         return RiskLevel.LOW
-    if normalized.startswith(("git push", "git commit", "pip install", "npm install")):
+    if normalized.startswith(("git push", "git commit", "pip install", "npm install", "pnpm install")):
         return RiskLevel.HIGH
     return RiskLevel.MEDIUM
-

@@ -23,10 +23,14 @@ class FileChange(BaseModel):
     session_id: str
     path: str
     previous_content: str | None
+    previous_bytes: bytes | None = None
     previous_hash: str | None
     new_hash: str
     created: bool = False
     undone: bool = False
+    operation: str = "edit"
+    source_path: str | None = None
+    destination_previous_bytes: bytes | None = None
 
 
 class StoredMessage(BaseModel):
@@ -34,4 +38,3 @@ class StoredMessage(BaseModel):
     role: str
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-

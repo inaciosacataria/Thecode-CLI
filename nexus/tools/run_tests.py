@@ -21,9 +21,11 @@ def detect_test_command(root: Path) -> list[str]:
         ("pnpm-lock.yaml", ["pnpm", "test"]),
         ("package.json", ["npm", "test"]),
         ("pom.xml", ["mvn", "test"]),
+        ("gradlew.bat", ["gradlew.bat", "test"]),
         ("gradlew", ["./gradlew", "test"]),
         ("go.mod", ["go", "test", "./..."]),
         ("Cargo.toml", ["cargo", "test"]),
+        ("pubspec.yaml", ["flutter", "test"]),
     )
     for marker, command in candidates:
         if (root / marker).exists():

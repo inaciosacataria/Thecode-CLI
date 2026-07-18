@@ -1,17 +1,35 @@
 from textual.theme import Theme
 
+NEXUS_TOKENS = {
+    "background": "#12071B",
+    "surface": "#1B1025",
+    "surface-alt": "#24152F",
+    "border": "#E8B84C",
+    "border-focus": "#66C7FF",
+    "text-primary": "#F2F2F2",
+    "text-secondary": "#AFAFAF",
+    "text-muted": "#77717C",
+    "accent": "#A970FF",
+    "success": "#79D279",
+    "warning": "#FFC857",
+    "error": "#FF6666",
+    "info": "#66C7FF",
+    "diff-add": "#79D279",
+    "diff-remove": "#FF6666",
+}
+
 NEXUS_AURORA = Theme(
     name="nexus-aurora",
-    primary="#E8B84C",
-    secondary="#A970FF",
-    accent="#66C7FF",
-    foreground="#F2F2F2",
-    background="#12071B",
-    surface="#1B1025",
-    panel="#1B1025",
-    success="#79D279",
-    warning="#FFC857",
-    error="#FF6666",
+    primary=NEXUS_TOKENS["border"],
+    secondary=NEXUS_TOKENS["accent"],
+    accent=NEXUS_TOKENS["info"],
+    foreground=NEXUS_TOKENS["text-primary"],
+    background=NEXUS_TOKENS["background"],
+    surface=NEXUS_TOKENS["surface"],
+    panel=NEXUS_TOKENS["surface"],
+    success=NEXUS_TOKENS["success"],
+    warning=NEXUS_TOKENS["warning"],
+    error=NEXUS_TOKENS["error"],
     dark=True,
     variables={
         "footer-background": "#1B1025",
@@ -21,7 +39,7 @@ NEXUS_AURORA = Theme(
         "input-cursor-foreground": "#12071B",
         "input-selection-background": "#A970FF 45%",
         "scrollbar-color": "#E8B84C 45%",
-        "border": "#E8B84C",
+        **NEXUS_TOKENS,
     },
 )
 
@@ -40,7 +58,18 @@ def _theme(name: str, background: str, panel: str, primary: str, accent: str, fo
         warning="#FFC857",
         error="#FF6666",
         dark=name != "github-light",
-        variables={"border": primary, "footer-key-foreground": primary},
+        variables={
+            **NEXUS_TOKENS,
+            "background": background,
+            "surface": panel,
+            "surface-alt": panel,
+            "border": primary,
+            "border-focus": accent,
+            "text-primary": foreground,
+            "accent": accent,
+            "info": accent,
+            "footer-key-foreground": primary,
+        },
     )
 
 

@@ -7,7 +7,13 @@ from nexus.agent.state import AgentStep, StepStatus
 from nexus.llm.base import LLMProvider, LLMResponse, Message
 from nexus.permissions.manager import PermissionManager
 from nexus.tools.registry import ToolRegistry
-from nexus.ui.tui import ActivityStatus, CommandsScreen, QuickOpenScreen, TheCodeApp
+from nexus.ui.tui import (
+    ActivityStatus,
+    CommandsScreen,
+    PermissionScreen,
+    QuickOpenScreen,
+    TheCodeApp,
+)
 
 
 class FailingProvider(LLMProvider):
@@ -32,11 +38,12 @@ async def test_tui_uses_aurora_and_full_layout(tmp_path: Path) -> None:
         await pilot.pause()
         assert app.theme == "nexus-aurora"
         assert app.query_one("#sidebar").display
-        assert app.query_one("#preview").display
+        assert not app.query_one("#preview").display
         assert len(app.query_one("#project-tree").root.children) == 1
         assert app.query_one("#diff-preview")
         assert app.query_one("#tool-inspector")
         assert not app.query_one("#history").lines
+        assert app.query_one("#empty-state").display
         assert app.query_one("#project-tree").region.height >= 8
 
 
@@ -119,6 +126,61 @@ async def test_tui_keeps_full_layout_on_ultrawide_terminal(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("size", "sidebar", "preview"),
+    [((80, 24), False, False), ((100, 30), True, False), ((120, 40), True, False), ((160, 50), True, True)],
+)
+async def test_tui_responsive_breakpoints(
+    tmp_path: Path, size: tuple[int, int], sidebar: bool, preview: bool
+) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        assert app.query_one("#sidebar").display is sidebar
+        assert app.query_one("#preview").display is preview
+        assert app.query_one("#prompt").display
+        assert app.query_one("#statusbar").display
+
+
+@pytest.mark.asyncio
+async def test_prompt_history_and_multiline_input(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        prompt = app.query_one("#prompt")
+        app.prompt_history = ["first request", "second request"]
+        app.prompt_history_index = len(app.prompt_history)
+        prompt.load_text("draft")
+        await pilot.press("up")
+        assert prompt.text == "second request"
+        await pilot.press("down")
+        assert prompt.text == "draft"
+        prompt.load_text("line one")
+        await pilot.press("shift+enter")
+        assert "\n" in prompt.text
+
+
+def test_required_tui_bindings_are_registered(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    keys = {
+        binding.key if hasattr(binding, "key") else binding[0]
+        for binding in app.BINDINGS
+    }
+    assert {"ctrl+r", "ctrl+t", "ctrl+l", "ctrl+k", "ctrl+p", "ctrl+c", "escape"} <= keys
+
+
+@pytest.mark.asyncio
+async def test_tui_compact_layout_hides_side_panels_and_uses_shortcuts(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(90, 28)) as pilot:
+        await pilot.pause()
+        assert not app.query_one("#sidebar").display
+        assert not app.query_one("#preview").display
+        assert not app.query_one("#activity-log").display
+        assert not app.query_one("#progress").display
+        assert app.query_one("#prompt").styles.height.value == 4
+
+
+@pytest.mark.asyncio
 async def test_tui_opens_first_workspace_folder(tmp_path: Path) -> None:
     first = tmp_path / "frontend"
     second = tmp_path / "backend"
@@ -153,6 +215,91 @@ async def test_ctrl_k_opens_command_center(tmp_path: Path) -> None:
         await pilot.press("ctrl+k")
         await pilot.pause()
         assert isinstance(app.screen, CommandsScreen)
+
+
+@pytest.mark.asyncio
+async def test_command_center_filters_fuzzily_without_losing_draft(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.load_text("unfinished request")
+        await pilot.press("ctrl+k")
+        query = app.screen.query_one("#command-query")
+        query.value = "rntst"
+        await pilot.pause()
+        options = app.screen.query_one("#command-list")
+        labels = [str(options.get_option_at_index(index).prompt) for index in range(options.option_count)]
+        assert any("Run tests" in label for label in labels)
+        await pilot.press("escape")
+        assert prompt.text == "unfinished request"
+
+
+@pytest.mark.asyncio
+async def test_execution_plan_updates_existing_tool_step(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(160, 50)) as pilot:
+        app.ui_state.current_task = "Create fruit API"
+        running = AgentStep(
+            number=1,
+            user_request="Create fruit API",
+            tool_name="write_file",
+            arguments={"path": "app.py"},
+        )
+        app.render_step(running)
+        app.render_step(running)
+        app.render_step(
+            running.model_copy(
+                update={"status": StepStatus.SUCCEEDED, "result": "updated", "duration_ms": 10}
+            )
+        )
+        await pilot.pause()
+        assert app.task_items == [("write file", "done")]
+        assert "CURRENT GOAL" in str(app.query_one("#tasks").render())
+
+
+@pytest.mark.asyncio
+async def test_stale_task_and_session_events_are_ignored(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(160, 50)) as pilot:
+        app.active_task_id = "new-task"
+        app.stream_token("stale", "old-task")
+        assert app.stream == ""
+        terminal = app.query_one("#terminal-log")
+        before = len(terminal.lines)
+        app.session_id = "new-session"
+        app.process_output("process", "stdout", "stale", None, "old-session")
+        await pilot.pause()
+        assert len(terminal.lines) == before
+
+
+@pytest.mark.asyncio
+async def test_cancel_marks_activity_and_hides_progress(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(160, 50)) as pilot:
+        app.active_task_id = "task"
+        app._update_activity("tool", "run tests", ActivityStatus.RUNNING, 50)
+        progress = app.query_one("#progress")
+        progress.display = True
+        app.action_cancel()
+        await pilot.pause()
+        assert app.activities["tool"].status == ActivityStatus.CANCELLED
+        assert not progress.display
+        assert app.ui_state.status_message == "Cancelled"
+
+
+@pytest.mark.asyncio
+async def test_clear_is_visual_only_and_removes_transient_activity(tmp_path: Path) -> None:
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.session_id = "session-kept"
+        app.query_one("#history").write("message")
+        app._update_activity("done", "read file", ActivityStatus.COMPLETED, 100)
+        app.action_clear()
+        await pilot.pause()
+        assert app.session_id == "session-kept"
+        assert not app.query_one("#history").lines
+        assert app.activity_history == []
+        assert not app.query_one("#empty-state").display
 
 
 @pytest.mark.asyncio
@@ -199,6 +346,19 @@ def test_quick_open_excludes_sensitive_files(tmp_path: Path) -> None:
 
     assert any(label.endswith("service.py") for label in screen.files)
     assert not any(label.endswith(".env") for label in screen.files)
+
+
+@pytest.mark.asyncio
+async def test_sensitive_reveal_requires_confirmation(tmp_path: Path) -> None:
+    path = tmp_path / ".env"
+    path.write_text("OPENROUTER_API_KEY=secret", encoding="utf-8")
+    app = TheCodeApp(tmp_path)
+    async with app.run_test(size=(160, 50)) as pilot:
+        app._show_protected_preview(path)
+        app.action_reveal_sensitive()
+        await pilot.pause()
+        assert isinstance(app.screen, PermissionScreen)
+        assert not app.sensitive_preview_revealed
 
 
 @pytest.mark.asyncio
@@ -267,3 +427,4 @@ async def test_streamed_response_is_visible_before_next_message(tmp_path: Path) 
         assert app.query_one("#response").display
         assert app.output_tokens_estimate > 0
         assert app.first_token_ms is not None
+        assert not app.query_one("#empty-state").display

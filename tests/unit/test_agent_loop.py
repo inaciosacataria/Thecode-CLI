@@ -53,6 +53,30 @@ class ContextProvider(LLMProvider):
         return LLMResponse(content=f"reply {len(self.requests)}")
 
 
+class CorrectionProvider(LLMProvider):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(
+        self, messages: list[Message], tools: list[dict[str, object]], model: str
+    ) -> LLMResponse:
+        self.calls += 1
+        if self.calls == 1:
+            return LLMResponse(
+                tool_calls=[ToolCall(id="w1", name="write_file", arguments={"path": "app.py", "content": "new"})]
+            )
+        if self.calls == 2:
+            assert "Inspect the relevant project files" in messages[-1].content
+            return LLMResponse(
+                tool_calls=[ToolCall(id="r1", name="read_file", arguments={"path": "app.py"})]
+            )
+        if self.calls == 3:
+            return LLMResponse(
+                tool_calls=[ToolCall(id="w2", name="write_file", arguments={"path": "app.py", "content": "new"})]
+            )
+        return LLMResponse(content="Updated app.py after inspection.")
+
+
 @pytest.mark.asyncio
 async def test_agent_executes_tools(tmp_path: Path) -> None:
     loop = AgentLoop(MockProvider(), ToolRegistry.defaults(tmp_path), PermissionManager("safe"), "mock")
@@ -151,3 +175,22 @@ def test_write_permission_description_contains_unified_diff(tmp_path: Path) -> N
     assert "---DIFF---" in description
     assert "-old" in description
     assert "+new" in description
+
+
+@pytest.mark.asyncio
+async def test_agent_recovers_after_write_before_inspection(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("old", encoding="utf-8")
+    loop = AgentLoop(
+        CorrectionProvider(),
+        ToolRegistry.defaults(tmp_path),
+        PermissionManager("agent"),
+        "mock",
+    )
+    answer, state = await loop.run("update app")
+    assert answer == "Updated app.py after inspection."
+    assert [step.status for step in state.steps] == [
+        StepStatus.FAILED,
+        StepStatus.SUCCEEDED,
+        StepStatus.SUCCEEDED,
+    ]
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "new"

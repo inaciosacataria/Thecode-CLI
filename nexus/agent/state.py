@@ -22,10 +22,10 @@ class AgentStep(BaseModel):
     duration_ms: float = 0
     status: StepStatus = StepStatus.RUNNING
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentState(BaseModel):
     original_request: str
     steps: list[AgentStep] = Field(default_factory=list)
     cancelled: bool = False
-

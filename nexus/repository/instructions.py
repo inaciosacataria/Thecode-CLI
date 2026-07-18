@@ -10,6 +10,8 @@ PRIMARY_INSTRUCTIONS = (
     "CLAUDE.md",
     ".cursorrules",
     "CONTRIBUTING.md",
+    "README.md",
+    ".nexus/memory.md",
 )
 
 

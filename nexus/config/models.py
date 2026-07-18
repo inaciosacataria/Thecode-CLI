@@ -4,11 +4,24 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+def is_free_openrouter_model(model: str) -> bool:
+    normalized = model.strip().lower()
+    return normalized == "openrouter/free" or normalized.endswith(":free")
+
+
+class ProviderFallback(BaseModel):
+    provider: Literal["openrouter", "openai", "anthropic", "gemini", "ollama"]
+    model: str
+
+
 class LLMConfig(BaseModel):
-    provider: Literal["openrouter", "openai", "anthropic", "ollama"] = "openrouter"
-    model: str = "anthropic/claude-sonnet-4"
+    provider: Literal["openrouter", "openai", "anthropic", "gemini", "ollama"] = "openrouter"
+    model: str = "openrouter/free"
     temperature: float = Field(default=0.1, ge=0, le=2)
     max_tokens: int = Field(default=8192, gt=0)
+    fallbacks: list[ProviderFallback] = Field(default_factory=list)
+    retry_attempts: int = Field(default=2, ge=1, le=5)
+    request_timeout: float = Field(default=120, gt=1, le=600)
 
 
 class AgentConfig(BaseModel):
@@ -17,7 +30,7 @@ class AgentConfig(BaseModel):
 
 
 class PermissionsConfig(BaseModel):
-    mode: Literal["safe", "ask", "auto"] = "ask"
+    mode: Literal["ask", "plan", "agent", "auto", "safe"] = "ask"
     allow: list[str] = Field(default_factory=lambda: ["pytest", "git status", "git diff"])
     deny: list[str] = Field(
         default_factory=lambda: ["rm -rf /", "git push --force", "git reset --hard"]
@@ -43,4 +56,3 @@ class Settings(BaseModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     project_root: Path = Field(default_factory=Path.cwd, exclude=True)
-

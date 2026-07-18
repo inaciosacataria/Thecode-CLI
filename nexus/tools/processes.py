@@ -14,8 +14,11 @@ from nexus.permissions.risk import RiskLevel
 from nexus.security.commands import classify_command, split_command
 from nexus.security.paths import resolve_project_path
 from nexus.tools.base import Tool, ToolResult
+from nexus.ui.encoding import decode_subprocess_output
 
 ProcessOutputCallback = Callable[[str, str, str, float | None], None]
+MAX_PROCESS_OUTPUT_LINES = 2000
+MAX_PROCESS_OUTPUT_CHARACTERS = 200_000
 
 
 def detect_progress(text: str) -> float | None:
@@ -39,6 +42,7 @@ class ManagedProcess:
     returncode: int | None = None
     tasks: list[asyncio.Task[None]] = field(default_factory=list)
     output: list[tuple[str, str]] = field(default_factory=list)
+    output_characters: int = 0
 
 
 class ProcessManager:
@@ -75,8 +79,15 @@ class ProcessManager:
         self, managed: ManagedProcess, stream_name: str, stream: asyncio.StreamReader
     ) -> None:
         while line := await stream.readline():
-            text = line.decode(errors="replace").rstrip("\r\n")
+            text = decode_subprocess_output(line).rstrip("\r\n")
             managed.output.append((stream_name, text))
+            managed.output_characters += len(text)
+            if len(managed.output) > MAX_PROCESS_OUTPUT_LINES:
+                removed = managed.output.pop(0)
+                managed.output_characters -= len(removed[1])
+            while managed.output_characters > MAX_PROCESS_OUTPUT_CHARACTERS:
+                removed = managed.output.pop(0)
+                managed.output_characters -= len(removed[1])
             if self.output_callback:
                 self.output_callback(managed.id, stream_name, text, detect_progress(text))
 

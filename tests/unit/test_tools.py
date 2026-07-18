@@ -14,6 +14,8 @@ from nexus.tools.path_operations import (
 )
 from nexus.tools.read_file import ReadFileInput, ReadFileTool
 from nexus.tools.registry import ToolRegistry
+from nexus.tools.run_tests import detect_test_command
+from nexus.tools.write_file import WriteFileInput, WriteFileTool
 
 
 @pytest.mark.asyncio
@@ -31,6 +33,28 @@ async def test_edit_requires_unique_match(tmp_path: Path) -> None:
     result = await EditFileTool(tmp_path).execute(EditFileInput(path="a.txt", old_text="same", new_text="new"))
     assert not result.success
     assert path.read_text(encoding="utf-8") == "same same"
+
+
+@pytest.mark.asyncio
+async def test_edit_preserves_crlf_and_utf8_bom(tmp_path: Path) -> None:
+    path = tmp_path / "windows.txt"
+    path.write_bytes(b"\xef\xbb\xbffirst\r\nsecond\r\n")
+    result = await EditFileTool(tmp_path).execute(
+        EditFileInput(path="windows.txt", old_text="second\n", new_text="updated\n")
+    )
+    assert result.success
+    assert path.read_bytes() == b"\xef\xbb\xbffirst\r\nupdated\r\n"
+
+
+@pytest.mark.asyncio
+async def test_write_existing_file_preserves_line_endings(tmp_path: Path) -> None:
+    path = tmp_path / "windows.txt"
+    path.write_bytes(b"old\r\n")
+    result = await WriteFileTool(tmp_path).execute(
+        WriteFileInput(path="windows.txt", content="new\nline\n")
+    )
+    assert result.success
+    assert path.read_bytes() == b"new\r\nline\r\n"
 
 
 def test_registry_definitions(tmp_path: Path) -> None:
@@ -99,3 +123,17 @@ async def test_delete_directory_refuses_non_empty_directory(tmp_path: Path) -> N
 
     assert not result.success
     assert directory.exists()
+
+
+@pytest.mark.parametrize(
+    ("marker", "command"),
+    [
+        ("pyproject.toml", "pytest"), ("package.json", "npm"),
+        ("pnpm-lock.yaml", "pnpm"), ("pom.xml", "mvn"),
+        ("gradlew", "./gradlew"), ("go.mod", "go"),
+        ("Cargo.toml", "cargo"), ("pubspec.yaml", "flutter"),
+    ],
+)
+def test_detects_supported_test_runners(tmp_path: Path, marker: str, command: str) -> None:
+    (tmp_path / marker).write_text("", encoding="utf-8")
+    assert detect_test_command(tmp_path)[0] == command
